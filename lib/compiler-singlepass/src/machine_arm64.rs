@@ -1,20 +1,22 @@
-use crate::arm64_decl::new_machine_state;
+use dynasmrt::{aarch64::Aarch64Relocation, VecAssembler};
+#[cfg(feature = "unwind")]
+use gimli::{AArch64, write::CallFrameInstruction};
+
+use wasmer_compiler::{
+    CallingConvention, CustomSection, FunctionBody, InstructionAddressMap, Relocation,
+    RelocationKind, RelocationTarget, SourceLoc, TrapInformation,
+};
+use wasmer_compiler::wasmparser::Type as WpType;
+use wasmer_types::{FunctionIndex, FunctionType, TrapCode, VMOffsets};
+
 use crate::arm64_decl::{GPR, NEON};
+use crate::arm64_decl::new_machine_state;
 use crate::common_decl::*;
 use crate::emitter_arm64::*;
 use crate::location::Location as AbstractLocation;
 use crate::location::Reg;
 use crate::machine::*;
 use crate::unwind::{UnwindInstructions, UnwindOps};
-use dynasmrt::{aarch64::Aarch64Relocation, VecAssembler};
-#[cfg(feature = "unwind")]
-use gimli::{write::CallFrameInstruction, AArch64};
-use wasmer_compiler::wasmparser::Type as WpType;
-use wasmer_compiler::{
-    CallingConvention, CustomSection, FunctionBody, InstructionAddressMap, Relocation,
-    RelocationKind, RelocationTarget, SourceLoc, TrapInformation,
-};
-use wasmer_types::{FunctionIndex, FunctionType, TrapCode, VMOffsets};
 
 type Assembler = VecAssembler<Aarch64Relocation>;
 type Location = AbstractLocation<GPR, NEON>;
@@ -907,8 +909,8 @@ impl MachineARM64 {
                 self.assembler.emit_sub(
                     Size::S64,
                     Location::GPR(tmp_bound),
-                    Location::GPR(tmp_bound),
                     Location::Imm32(value_size as _),
+                    Location::GPR(tmp_bound),
                 );
             } else {
                 let tmp2 = self.acquire_temp_gpr().unwrap();
@@ -1664,20 +1666,18 @@ impl Machine for MachineARM64 {
                 6 => Location::GPR(GPR::X6),
                 7 => Location::GPR(GPR::X7),
                 _ => {
-                    let sz = match sz {
+                    let sz = 1 << match sz {
                         Size::S8 => 0,
                         Size::S16 => 1,
                         Size::S32 => 2,
                         Size::S64 => 3,
                     };
                     // align first
-                    if sz > 1 {
-                        if *stack_args & !((1 << sz) - 1) != 0 {
-                            *stack_args = (*stack_args + ((1 << sz) - 1)) & !((1 << sz) - 1);
-                        }
+                    if sz > 1 && *stack_args & (sz - 1) != 0 {
+                        *stack_args = (*stack_args + (sz - 1)) & !(sz - 1);
                     }
                     let loc = Location::Memory(GPR::XzrSp, *stack_args as i32);
-                    *stack_args += 1 << sz;
+                    *stack_args += sz;
                     loc
                 }
             },
@@ -1717,20 +1717,18 @@ impl Machine for MachineARM64 {
                 6 => Location::GPR(GPR::X6),
                 7 => Location::GPR(GPR::X7),
                 _ => {
-                    let sz = match sz {
+                    let sz = 1 << match sz {
                         Size::S8 => 0,
                         Size::S16 => 1,
                         Size::S32 => 2,
                         Size::S64 => 3,
                     };
                     // align first
-                    if sz > 1 {
-                        if *stack_args & !((1 << sz) - 1) != 0 {
-                            *stack_args = (*stack_args + ((1 << sz) - 1)) & !((1 << sz) - 1);
-                        }
+                    if sz > 1 && *stack_args & (sz - 1) != 0 {
+                        *stack_args = (*stack_args + (sz - 1)) & !(sz - 1);
                     }
                     let loc = Location::Memory(GPR::X29, 16 * 2 + *stack_args as i32);
-                    *stack_args += 1 << sz;
+                    *stack_args += sz;
                     loc
                 }
             },
